@@ -62,15 +62,25 @@ class MeshGeoCalculator2D:
             y1 = y[:-1, :-1]
             x2 = x[1:, :-1]
             y2 = y[1:, :-1]
+            x3 = x[1:, 1:]
+            y3 = y[1:, 1:]
             x4 = x[:-1, 1:]
             y4 = y[:-1, 1:]
 
-            # 下边面法向量 S1: [y2 - y1, x1 - x2]
+            # 下边面法向量 S1: 从点1→2，法向量 [y2 - y1, x1 - x2]
             S1 = np.stack((y2 - y1, x1 - x2), axis=-1)
 
-            # 左边面法向量 S4: [y1 - y4, x4 - x1]
+            # 右边面法向量 S2: 从点2→3，法向量 [y3 - y2, x2 - x3]
+            S2 = np.stack((y3 - y2, x2 - x3), axis=-1)
+
+            # 上边面法向量 S3: 从点3→4，法向量 [y4 - y3, x3 - x4]
+            S3 = np.stack((y4 - y3, x3 - x4), axis=-1)
+
+            # 左边面法向量 S4: 从点4→1，法向量 [y1 - y4, x4 - x1]
             S4 = np.stack((y1 - y4, x4 - x1), axis=-1)
 
-            blk["S1"] = S1
+            blk["S1"] = S1  # (ni-1, nj-1, 2)
+            blk["S2"] = S2
+            blk["S3"] = S3
             blk["S4"] = S4
 

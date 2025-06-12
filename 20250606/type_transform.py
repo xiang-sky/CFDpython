@@ -1,4 +1,6 @@
 import numpy as np
+import config
+
 
 def trans_list2numpy_2d(blocks, N_C):
     """
@@ -15,20 +17,62 @@ def trans_list2numpy_2d(blocks, N_C):
         # 存储流场守恒量
         numpy_cal = np.zeros((ni, nj, N_C))
 
-        # 存储网格几何量 1,2为xc、yc. 3为volume. 4,5,6,7为S1、S4
-        geo = np.zeros((ni, nj, 7))
+        # 存储网格几何量 1,2为xc、yc. 3为volume. 4,5,6,7,8,9,10,11为S1、S2、S3、S4
+        geo = np.zeros((ni, nj, 11))
         geo[:, :, 0] = blk['xc']
         geo[:, :, 1] = blk['yc']
         geo[:, :, 2] = blk['volume']
         geo[:, :, 3:5] = blk['S1']
-        geo[:, :, 5:7] = blk['S4']
+        geo[:, :, 5:7] = blk['S2']
+        geo[:, :, 7:9] = blk['S3']
+        geo[:, :, 9:11] = blk['S4']
 
         # 排序存储网格边界条件
         bc_sorted = [None] * 4  # 面 1 到 4
         for bc in blk['bc']:
             i1, i2, j1, j2 = bc['source']
+
+            if i1 > i2:
+                i1 = i1 - 1
+            elif i1 < i2:
+                i2 = i2 - 1
+            elif i1 == i2 and i1 > 1:
+                i1 = i1 - 1
+                i2 = i2 - 1
+
+            if j1 > j2:
+                j1 = j1 - 1
+            elif j1 < j2:
+                j2 = j2 - 1
+            elif j1 == j2 and j1 > 1:
+                j1 = j1 - 1
+                j2 = j2 - 1
+
+            bc['source'] = (i1, i2, j1, j2)
+            if bc['type'] == -1:
+                ti1, ti2, tj1, tj2 = bc['target']
+
+                if ti1 > ti2:
+                    ti1 = ti1 - 1
+                elif ti1 < ti2:
+                    ti2 = ti2 - 1
+                elif ti1 == ti2 and ti1 > 1:
+                    ti1 = ti1 - 1
+                    ti2 = ti2 - 1
+
+                if tj1 > tj2:
+                    tj1 = tj1 - 1
+                elif tj1 < tj2:
+                    tj2 = tj2 - 1
+                elif tj1 == tj2 and tj1 > 1:
+                    tj1 = tj1 - 1
+                    tj2 = tj2 - 1
+
+                bc['target'] = (ti1, ti2, tj1, tj2)
+
             face_id = identify_face(i1, i2, j1, j2)
             bc_sorted[face_id - 1] = bc
+
         # 去掉为 None 的（如果有边缺失）
         blk['bc'] = [bc for bc in bc_sorted if bc is not None]
 
@@ -116,10 +160,30 @@ def trans_conservative2primitive(U, gamma=1.4):
         'p': p
     }
 
+
+def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem, e):
+    """
+    将无量纲原始变量还原为有量纲变量。
+    参数：
+        vi, vj : 无量纲速度分量
+        pho    : 无量纲密度
+        tem    : 无量纲温度
+        e      : 无量纲总能量
+        p      : 无量纲压强
+    """
+    return {
+        "u": vi * config.V_REF,
+        "v": vj * config.V_REF,
+        "p": p * config.P_REF,
+        "rho": pho * config.PHO_REF,
+        "tem": tem * config.TEM_REF,
+        "E": e * (config.V_REF * config.V_REF),
+    }
+
+
 def identify_face(i1, i2, j1, j2):
     if j1 == j2:
         return 1 if j1 == 1 else 3  # 下或上
     elif i1 == i2:
         return 4 if i1 == 1 else 2  # 左或右
     raise ValueError("不能识别边")
-
