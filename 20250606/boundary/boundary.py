@@ -59,67 +59,76 @@ def boundary_wall_inviscid(blocks):
 
             i1, i2, j1, j2 = bc['source']
             ghost = bc['ghost_cell']
+            length, ghost_layer, _ = ghost.shape
             face_id = identify_face(i1, i2, j1, j2)
+            if face_id == 1 or face_id == 4:
+                imax = np.max([i1, i2])
+            else:
+                jmax = np.max([j1, j2])
 
             if face_id == 1:  # 下边界 → 使用 geo[:, :, 3:5]
-                for i in range(i1, i2 + 1):
-                    n = geo[i, j1, 3:5]
-                    n_unit = n / np.linalg.norm(n)
-                    real = fluid[i, 1, :]  # j=1 是实网格第一层
-                    rho, rhou, rhov, E = real[0:4]
-                    u, v = rhou / rho, rhov / rho
-                    un = u * n_unit[0] + v * n_unit[1]
-                    u_new = u - 2 * un * n_unit[0]
-                    v_new = v - 2 * un * n_unit[1]
-                    ghost[0, i - i1, 0] = rho
-                    ghost[0, i - i1, 1] = rho * u_new
-                    ghost[0, i - i1, 2] = rho * v_new
-                    ghost[0, i - i1, 3] = E
+                for n in range(imax):
+                    for layer in range(ghost_layer):
+                        vector_n = geo[n, j1 - 1, 3:5]
+                        n_unit = vector_n / np.linalg.norm(vector_n)
+                        rho, rhou, rhov, E = fluid[n, layer, :]
+                        u = rhou / rho
+                        v = rhov / rho
+                        un = u * n_unit[0] + v * n_unit[1]
+                        u_new = u - 2 * un * n_unit[0]
+                        v_new = v - 2 * un * n_unit[1]
+                        ghost[n, layer, 0] = rho
+                        ghost[n, layer, 1] = rho * u_new
+                        ghost[n, layer, 2] = rho * v_new
+                        ghost[n, layer, 3] = E
 
             elif face_id == 2:  # 右边界 → geo[i2-1, j, 5:7]
-                for j in range(j1, j2 + 1):
-                    n = geo[i2 - 1, j, 5:7]
-                    n_unit = n / np.linalg.norm(n)
-                    real = fluid[ni - 2, j, :]  # i=ni-2 是边界内层
-                    rho, rhou, rhov, E = real[0:4]
-                    u, v = rhou / rho, rhov / rho
-                    un = u * n_unit[0] + v * n_unit[1]
-                    u_new = u - 2 * un * n_unit[0]
-                    v_new = v - 2 * un * n_unit[1]
-                    ghost[0, j - j1, 0] = rho
-                    ghost[0, j - j1, 1] = rho * u_new
-                    ghost[0, j - j1, 2] = rho * v_new
-                    ghost[0, j - j1, 3] = E
+                for n in range(jmax):
+                    for layer in range(ghost_layer):
+                        vector_n = geo[i1 - 1, n, 5:7]
+                        n_unit = vector_n / np.linalg.norm(vector_n)
+                        rho, rhou, rhov, E = fluid[imax - 1 - layer, n, :]
+                        u = rhou / rho
+                        v = rhov / rho
+                        un = u * n_unit[0] + v * n_unit[1]
+                        u_new = u - 2 * un * n_unit[0]
+                        v_new = v - 2 * un * n_unit[1]
+                        ghost[n, layer, 0] = rho
+                        ghost[n, layer, 1] = rho * u_new
+                        ghost[n, layer, 2] = rho * v_new
+                        ghost[n, layer, 3] = E
 
             elif face_id == 3:  # 上边界 → geo[i, j2-1, 7:9]
-                for i in range(i1, i2 + 1):
-                    n = geo[i, j2 - 1, 7:9]
-                    n_unit = n / np.linalg.norm(n)
-                    real = fluid[i, nj - 2, :]  # j=nj-2 是内层
-                    rho, rhou, rhov, E = real[0:4]
-                    u, v = rhou / rho, rhov / rho
-                    un = u * n_unit[0] + v * n_unit[1]
-                    u_new = u - 2 * un * n_unit[0]
-                    v_new = v - 2 * un * n_unit[1]
-                    ghost[0, i - i1, 0] = rho
-                    ghost[0, i - i1, 1] = rho * u_new
-                    ghost[0, i - i1, 2] = rho * v_new
-                    ghost[0, i - i1, 3] = E
+                for n in range(imax):
+                    for layer in range(ghost_layer):
+                        vector_n = geo[n, j1 - 1, 7:9]
+                        n_unit = vector_n / np.linalg.norm(vector_n)
+                        rho, rhou, rhov, E = fluid[n, jmax - 1 - layer, :]
+                        u = rhou / rho
+                        v = rhov / rho
+                        un = u * n_unit[0] + v * n_unit[1]
+                        u_new = u - 2 * un * n_unit[0]
+                        v_new = v - 2 * un * n_unit[1]
+                        ghost[n, layer, 0] = rho
+                        ghost[n, layer, 1] = rho * u_new
+                        ghost[n, layer, 2] = rho * v_new
+                        ghost[n, layer, 3] = E
 
             elif face_id == 4:  # 左边界 → geo[i1, j, 9:11]
-                for j in range(j1, j2 + 1):
-                    n = geo[i1, j, 9:11]
-                    n_unit = n / np.linalg.norm(n)
-                    real = fluid[1, j, :]  # i=1 是内层
-                    rho, rhou, rhov, E = real[0:4]
-                    u, v = rhou / rho, rhov / rho
-                    un = u * n_unit[0] + v * n_unit[1]
-                    u_new = u - 2 * un * n_unit[0]
-                    v_new = v - 2 * un * n_unit[1]
-                    ghost[0, j - j1, 0] = rho
-                    ghost[0, j - j1, 1] = rho * u_new
-                    ghost[0, j - j1, 2] = rho * v_new
-                    ghost[0, j - j1, 3] = E
+                for n in range(jmax):
+                    for layer in range(ghost_layer):
+                        vector_n = geo[i1 - 1, n, 9:11]
+                        n_unit = vector_n / np.linalg.norm(vector_n)
+                        rho, rhou, rhov, E = fluid[layer, n, :]
+                        u = rhou / rho
+                        v = rhov / rho
+                        un = u * n_unit[0] + v * n_unit[1]
+                        u_new = u - 2 * un * n_unit[0]
+                        v_new = v - 2 * un * n_unit[1]
+                        ghost[n, layer, 0] = rho
+                        ghost[n, layer, 1] = rho * u_new
+                        ghost[n, layer, 2] = rho * v_new
+                        ghost[n, layer, 3] = E
 
 
 def boundary_interface(blocks):

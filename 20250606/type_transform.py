@@ -117,48 +117,31 @@ def trans_primitive2conservative(rho, u, v, p, w=None, gamma=1.4):
     return cons
 
 
-def trans_conservative2primitive(U, gamma=1.4):
+def trans_conservative2primitive(U, gamma, return_pressure=False):
     """
-    将守恒变量转换为原始变量，支持二维和三维。
-    参数：
-        U : ndarray
-            守恒变量数组，形状为 (..., N_C)
-            - N_C = 4（二维）：[rho, rho*u, rho*v, E]
-            - N_C = 5（三维）：[rho, rho*u, rho*v, rho*w, E]
-        gamma : float
-            比热比，默认 1.4
-
-    返回：
-        dict，包含：
-            rho : ndarray
-            u, v : ndarray
-            w : ndarray or None
-            p : ndarray
+    将守恒变量 U 转为原始变量 W: [rho, u, v, ..., H]
+    支持二维或三维
+    可选返回压力 p
     """
-    rho = U[..., 0]
-    u = U[..., 1] / rho
-    v = U[..., 2] / rho
+    rho = U[0]
+    u = U[1] / rho
+    v = U[2] / rho
 
-    if U.shape[-1] == 5:  # 三维
-        w = U[..., 3] / rho
+    if len(U) >= 5:
+        w = U[3] / rho
         kinetic = 0.5 * (u ** 2 + v ** 2 + w ** 2)
-        E = U[..., 4]
-    elif U.shape[-1] == 4:  # 二维
-        w = None
-        kinetic = 0.5 * (u ** 2 + v ** 2)
-        E = U[..., 3]
     else:
-        raise ValueError("不支持的守恒变量数量：应为 4（2D）或 5（3D）")
+        kinetic = 0.5 * (u ** 2 + v ** 2)
 
-    p = (gamma - 1) * (E - rho * kinetic)
+    E = U[-1] / rho
+    p = (gamma - 1) * (E - kinetic) * rho
+    H = E + p / rho  # 总焓
 
-    return {
-        'rho': rho,
-        'u': u,
-        'v': v,
-        'w': w,
-        'p': p
-    }
+    if return_pressure:
+        return np.array([rho, u, v, H]), p
+    else:
+        return np.array([rho, u, v, H])
+
 
 
 def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem, e):
