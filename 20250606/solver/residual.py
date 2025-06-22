@@ -1,10 +1,10 @@
 import numpy as np
 from flux import conflux_ausm
 from flux import reconstruct_interface_state as re
+import config
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import config
 
 
 def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
@@ -57,13 +57,13 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
             w_stat = re(blocks, [i, j], [1, -1], m, gamma)
             flux_tem[i, j, :, 3] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s4, gamma)
 
-            if(i == ni + ghost_layer - 1):
+            if i == ni + ghost_layer - 1:
                 # 上边面通量
                 w_stat = re(blocks, [i, j], [2, 1], m, gamma)
                 flux_tem[i, j, :, 2] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s3, gamma)
-            if(j == nj + ghost_layer - 1):
+            if j == nj + ghost_layer - 1:
                 # 右边面通量
-                w_stat = re(blocks, [i, j], [2, 1], m, gamma)
+                w_stat = re(blocks, [i, j], [1, 1], m, gamma)
                 flux_tem[i, j, :, 1] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s2, gamma)
 
     for i in range(ghost_layer, ni + ghost_layer - 1):
@@ -75,6 +75,7 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
         flux_tem[ghost_layer: ni + ghost_layer, ghost_layer: nj + ghost_layer, :, :],
         axis=3
     )
-    
-    return res
 
+    res = res / vol
+
+    return res
