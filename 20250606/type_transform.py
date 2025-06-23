@@ -86,42 +86,45 @@ def trans_list2numpy_2d(blocks, N_C):
     return block_cal
 
 
-def trans_primitive2conservative(rho, u, v, p, w=None, gamma=1.4):
+def trans_primitive2conservative(W, gamma):
     """
-    将原始变量转换为守恒变量，支持二维和三维。
+    将原始变量 [rho, u, v (, w), P] 转换为守恒变量 [rho, rho*u, rho*v (, rho*w), rho*E]
+    支持二维和三维。
     参数：
-        rho : ndarray      密度 (ni, nj) 或 (ni, nj, nk)
-        u, v : ndarray      速度分量
-        p : ndarray         压力
-        w : ndarray or None 第三维速度，若为 None 表示二维
-        gamma : float       比热比
-
+        W : ndarray
+            原始变量数组，shape = (m,) or (m, N)，包含：
+              - rho : 密度
+              - u, v (, w) : 各方向速度
+              - P : 压强
+        gamma : float
+            比热比
     返回：
-        ndarray，守恒变量数组，形状为 (ni, nj[, nk], N_C)
+        ndarray，守恒变量数组，与 W 形状一致
     """
-    # 确定维度
-    ndim = 3 if w is not None else 2
+    W = np.asarray(W)
+    ndim = W.shape[0] - 2  # 除去 rho 和 P，剩下的是速度分量个数
 
-    # 动能项
-    kinetic = u ** 2 + v ** 2 + (w ** 2 if w is not None else 0)
-
-    # 总能量
-    E = p / (gamma - 1) + 0.5 * rho * kinetic
-
-    # 构造守恒变量数组
-    if ndim == 2:
-        cons = np.stack([rho, rho * u, rho * v, E], axis=-1)  # shape: (..., 4)
+    rho = W[0]
+    u = W[1]
+    v = W[2]
+    if ndim == 3:
+        w = W[3]
+        P = W[4]
+        kinetic = 0.5 * (u**2 + v**2 + w**2)
+        E = P / ((gamma - 1) * rho) + kinetic
+        cons = np.array([rho, rho*u, rho*v, rho*w, rho*E])
     else:
-        cons = np.stack([rho, rho * u, rho * v, rho * w, E], axis=-1)  # shape: (..., 5)
-
+        P = W[3]
+        kinetic = 0.5 * (u**2 + v**2)
+        E = P / ((gamma - 1) * rho) + kinetic
+        cons = np.array([rho, rho*u, rho*v, rho*E])
     return cons
 
 
 def trans_conservative2primitive(U, gamma, return_pressure=False):
     """
-    将守恒变量 U 转为原始变量 W: [rho, u, v, ..., H]
+    将守恒变量 U 转为原始变量 W: [rho, u, v, ..., P]
     支持二维或三维
-    可选返回压力 p
     """
     rho = U[0]
     u = U[1] / rho
@@ -135,12 +138,9 @@ def trans_conservative2primitive(U, gamma, return_pressure=False):
 
     E = U[-1] / rho
     p = (gamma - 1) * (E - kinetic) * rho
-    H = E + p / rho  # 总焓
+    # H = E + p / rho  # 总焓
 
-    if return_pressure:
-        return np.array([rho, u, v, H]), p
-    else:
-        return np.array([rho, u, v, H])
+    return np.array([rho, u, v, p])
 
 
 
