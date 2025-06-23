@@ -113,7 +113,7 @@ def compute_ausm_flux_2d_local(w_l, w_r, s, gamma=1.4):
     return f_face
 
 
-def reconstruct_interface_state(blocks, id0, dir_fix, m=config.N_C, gamma=config.GAMMA):
+def reconstruct_interface_state(blocks, id0, idp,  dir_fix, m=config.N_C, gamma=config.GAMMA):
     """
     重构截面两侧的守恒状态变量 U_L, U_R
     参数:
@@ -130,20 +130,20 @@ def reconstruct_interface_state(blocks, id0, dir_fix, m=config.N_C, gamma=config
 
     # 根据体积/法向计算 eps
     geo = blocks["geo"]
-    vol = geo[tuple(id0)][2]
+    vol = geo[tuple(idp)][2]
 
     if dir_fix == [1, 1]:
         # S2
-        S_vec = geo[tuple(id0)][5:7]
+        S_vec = geo[tuple(idp)][5:7]
     elif dir_fix == [1, -1]:
         # S4
-        S_vec = geo[tuple(id0)][9:11]
+        S_vec = geo[tuple(idp)][9:11]
     elif dir_fix == [2, 1]:
         # S3
-        S_vec = geo[tuple(id0)][7:9]
+        S_vec = geo[tuple(idp)][7:9]
     elif dir_fix == [2, -1]:
         # S1
-        S_vec = geo[tuple(id0)][3:5]
+        S_vec = geo[tuple(idp)][3:5]
 
     length = vol / np.linalg.norm(S_vec)
     eps = max(1e-6, 1.0 * length ** 2.5)  # Reconepsmin_c=1e-6, ReconepsScal_c=1.0, ReconepsExp_c=2.5

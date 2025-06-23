@@ -1,10 +1,10 @@
 import numpy as np
 from flux import conflux_ausm
 from flux import reconstruct_interface_state as re
-import config
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import config
 
 
 def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
@@ -21,7 +21,7 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
 
     # 根据虚网格层数扩充守恒量矩阵U
     _, ghost_layer, _ = blocks['bc'][0]['ghost_cell'].shape
-    u_rescal = np.pad(u, pad_width=((ghost_layer, ghost_layer), (ghost_layer, ghost_layer)), mode='constant', constant_values=0)
+    u_rescal = np.pad(u, pad_width=((ghost_layer, ghost_layer), (ghost_layer, ghost_layer), (0, 0)), mode='constant', constant_values=0.3)
 
     for i in range(4):
         m_bun = blocks['bc'][i]['ghost_cell']
@@ -48,34 +48,35 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
 
     for i in range(ghost_layer, ni + ghost_layer):
         for j in range(ghost_layer, nj + ghost_layer):
-
+            id0 = [i, j]
+            idp = [i - ghost_layer, j - ghost_layer]
             # 下边面通量
-            w_stat = re(blocks, [i, j], [2, -1], m, gamma)
-            flux_tem[i, j, :, 0] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s1, gamma)
+            w_stat = re(blocks, id0, idp, [2, -1], m, gamma)
+            flux_tem[idp[0], idp[1], :, 0] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s1[tuple(idp)], gamma)
 
             # 左边面通量
-            w_stat = re(blocks, [i, j], [1, -1], m, gamma)
-            flux_tem[i, j, :, 3] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s4, gamma)
+            w_stat = re(blocks, id0, idp, [1, -1], m, gamma)
+            flux_tem[idp[0], idp[1], :, 3] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s4[tuple(idp)], gamma)
 
             if i == ni + ghost_layer - 1:
-                # 上边面通量
-                w_stat = re(blocks, [i, j], [2, 1], m, gamma)
-                flux_tem[i, j, :, 2] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s3, gamma)
-            if j == nj + ghost_layer - 1:
                 # 右边面通量
-                w_stat = re(blocks, [i, j], [1, 1], m, gamma)
-                flux_tem[i, j, :, 1] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s2, gamma)
+                w_stat = re(blocks, id0, idp, [1, 1], m, gamma)
+                flux_tem[idp[0], idp[1], :, 1] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s2[tuple(idp)], gamma)
+            if j == nj + ghost_layer - 1:
+                # 上边面通量
+                w_stat = re(blocks, id0, idp, [2, 1], m, gamma)
+                flux_tem[idp[0], idp[1], :, 2] = conflux_ausm(w_stat[:, 0], w_stat[:, 1], s3[tuple(idp)], gamma)
 
-    for i in range(ghost_layer, ni + ghost_layer - 1):
-        for j in range(ghost_layer, nj + ghost_layer - 1):
+    for i in range(0, ni - 1):
+        for j in range(0, nj - 1):
             flux_tem[i, j, :, 1] = - flux_tem[i + 1, j, :, 3]
             flux_tem[i, j, :, 2] = - flux_tem[i, j + 1, :, 0]
 
     res = np.sum(
-        flux_tem[ghost_layer: ni + ghost_layer, ghost_layer: nj + ghost_layer, :, :],
+        flux_tem[0: ni, 0: nj, :, :],
         axis=3
     )
 
-    res = res / vol
+    res = res / vol[:, :, None]
 
     return res
