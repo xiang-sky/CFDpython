@@ -143,8 +143,7 @@ def trans_conservative2primitive(U, gamma, return_pressure=False):
     return np.array([rho, u, v, p])
 
 
-
-def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem, e):
+def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem):
     """
     将无量纲原始变量还原为有量纲变量。
     参数：
@@ -154,14 +153,12 @@ def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem, e):
         e      : 无量纲总能量
         p      : 无量纲压强
     """
-    return {
-        "u": vi * config.V_REF,
-        "v": vj * config.V_REF,
-        "p": p * config.P_REF,
-        "rho": pho * config.PHO_REF,
-        "tem": tem * config.TEM_REF,
-        "E": e * (config.V_REF * config.V_REF),
-    }
+    u = vi * config.V_REF
+    v = vj * config.V_REF
+    p = p * config.P_REF
+    rho = pho * config.PHO_REF
+    tem = tem * config.TEM_REF
+    return u, v, p, rho, tem
 
 
 def identify_face(i1, i2, j1, j2):

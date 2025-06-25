@@ -1,13 +1,13 @@
 import numpy as np
-from flux import conflux_ausm
-from flux import reconstruct_interface_state as re
+from .flux import conflux_ausm
+from .flux import reconstruct_interface_state as re
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 
 
-def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
+def compute_residual_ausm(blocks, m=config.N_C, gamma=config.GAMMA):
     """
     计算某个块的残差矩阵 res[i,j,:] = 各方向通量之和
     """
@@ -16,7 +16,7 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
     s2 = blocks['geo'][:, :, 5:7]
     s3 = blocks['geo'][:, :, 7:9]
     s4 = blocks['geo'][:, :, 9:11]         # 左边法向量
-    vol = blocks['geo'][:, :, 2]
+    # vol = blocks['geo'][:, :, 2]
     ni, nj, _ = u.shape
 
     # 根据虚网格层数扩充守恒量矩阵U
@@ -71,12 +71,17 @@ def compute_residual_roe(blocks, m=config.N_C, gamma=config.GAMMA):
         for j in range(0, nj - 1):
             flux_tem[i, j, :, 1] = - flux_tem[i + 1, j, :, 3]
             flux_tem[i, j, :, 2] = - flux_tem[i, j + 1, :, 0]
+    for i in range(0, ni - 1):
+        flux_tem[i, nj - 1, :, 1] = - flux_tem[i + 1, nj - 1, :, 3]
+    for j in range(0, nj - 1):
+        flux_tem[ni - 1, j, :, 2] = - flux_tem[ni - 1, j + 1, :, 0]
 
     res = np.sum(
         flux_tem[0: ni, 0: nj, :, :],
         axis=3
     )
 
-    res = res / vol[:, :, None]
+    blocks['fluid'] = u
+    # res = res / vol[:, :, None]
 
     return res

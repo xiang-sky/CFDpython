@@ -134,18 +134,18 @@ def reconstruct_interface_state(blocks, id0, idp,  dir_fix, m=config.N_C, gamma=
 
     if dir_fix == [1, 1]:
         # S2
-        S_vec = geo[tuple(idp)][5:7]
+        s_vec = geo[tuple(idp)][5:7]
     elif dir_fix == [1, -1]:
         # S4
-        S_vec = geo[tuple(idp)][9:11]
+        s_vec = geo[tuple(idp)][9:11]
     elif dir_fix == [2, 1]:
         # S3
-        S_vec = geo[tuple(idp)][7:9]
+        s_vec = geo[tuple(idp)][7:9]
     elif dir_fix == [2, -1]:
         # S1
-        S_vec = geo[tuple(idp)][3:5]
+        s_vec = geo[tuple(idp)][3:5]
 
-    length = vol / np.linalg.norm(S_vec)
+    length = vol / np.linalg.norm(s_vec)
     eps = max(1e-6, 1.0 * length ** 2.5)  # Reconepsmin_c=1e-6, ReconepsScal_c=1.0, ReconepsExp_c=2.5
 
     pl = muscl(p_stencil[:, 0:3], wid=1, eps=eps)
