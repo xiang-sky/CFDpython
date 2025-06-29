@@ -5,6 +5,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 import boundary.boundary as bd
+from post_output.output_tecplot import output_tecplot
+import pickle
 
 
 class RK3Solver:
@@ -65,8 +67,8 @@ class RK3Solver:
         vol = blk['geo'][:, :, 2]  # 控制体积 |Ω|
 
         dt_local = self.cfl * vol / (s1 + s2)  # 每个点自己的 dt
-        dt = np.min(dt_local)  # 全局最小时间步
-        return dt
+    #    dt = np.min(dt_local)  # 全局最小时间步  注释掉已使用全局时间步长
+        return dt_local
 
     def compute_residual(self, blk):
         """计算残差"""
@@ -85,15 +87,16 @@ class RK3Solver:
         # 1. 保存初始状态 W^(n)
         for blk in self.blocks:
             blk['U0'] = blk['fluid'].copy()  # 保存初始状态
+            blk['dt_local'] = self.compute_time_step(blk)  # 计算并缓存局部时间步（数组）
 
         # === RK Step 1 ===
         self.apply_boundary_conditions()
         for blk in self.blocks:
             U0 = blk['U0']
-            dt = self.compute_time_step(blk)
+            dt_local = blk['dt_local']
             vol = blk['geo'][:, :, 2]
             res1 = self.compute_residual(blk)
-            W1 = U0 - (dt / vol[:, :, None]) * res1
+            W1 = U0 - (dt_local[:, :, None] / vol[:, :, None]) * res1
             blk['fluid'] = W1
 
         # === RK Step 2 ===
@@ -101,10 +104,10 @@ class RK3Solver:
         for blk in self.blocks:
             U0 = blk['U0']
             W1 = blk['fluid']
-            dt = self.compute_time_step(blk)
+            dt_local = blk['dt_local']
             vol = blk['geo'][:, :, 2]
             res2 = self.compute_residual(blk)
-            W2 = (3 / 4) * U0 + (1 / 4) * (W1 - (dt / vol[:, :, None]) * res2)
+            W2 = (3 / 4) * U0 + (1 / 4) * (W1 - (dt_local[:, :, None] / vol[:, :, None]) * res2)
             blk['fluid'] = W2
 
         # === RK Step 3 ===
@@ -112,15 +115,16 @@ class RK3Solver:
         for blk in self.blocks:
             U0 = blk['U0']
             W2 = blk['fluid']
-            dt = self.compute_time_step(blk)
+            dt_local = blk['dt_local']
             vol = blk['geo'][:, :, 2]
             res3 = self.compute_residual(blk)
-            W3 = (1 / 3) * U0 + (2 / 3) * (W2 - (dt / vol[:, :, None]) * res3)
+            W3 = (1 / 3) * U0 + (2 / 3) * (W2 - (dt_local[:, :, None] / vol[:, :, None]) * res3)
             blk['fluid'] = W3
             blk['res'] = res3  # 最终残差
 
         for blk in self.blocks:
             blk.pop('U0', None)
+            blk.pop('dt_local', None)
 
         self.iteration += 1
 
@@ -139,7 +143,20 @@ class RK3Solver:
             self.iterate()
             res_norm = self.compute_global_residual_norm()
             self.residuals.append(res_norm)
-            print(f"[Iter {self.iteration}] Residual = {res_norm:.3e}")
+            if self.iteration % 20 == 0:
+                print(f"[Iter {self.iteration}] Residual = {res_norm:.3e}")
+
+            if self.iteration % 100 == 0:
+                tecplot_filename = f"solution_iter_{self.iteration}.dat"
+                pkl_filename = f"blocks_result_iter_{self.iteration}.pkl"
+
+                # 保存 Tecplot 文件
+                output_tecplot(self.blocks, tecplot_filename)
+
+                # 保存 Python 对象
+                with open(pkl_filename, 'wb') as f:
+                    pickle.dump(self.blocks, f)
+
             if res_norm < tol:
                 print("收敛达到停止条件")
                 break
