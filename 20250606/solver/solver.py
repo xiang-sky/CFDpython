@@ -8,31 +8,21 @@ import boundary.boundary as bd
 from post_output.output_tecplot import output_tecplot
 from post_output.output_tecplot import output_forces
 import pickle
-
+import time
 
 class RK4Solver:
     def __init__(self, blocks, gamma=config.GAMMA, cfl=0.1):
-        """
-        参数:
-            blocks: list of dict，包含每个 block 的网格、守恒量、边界等信息
-            gamma: 比热比
-            CFL: CFL 数
-        """
-        self.blocks = blocks
+        self.blocks = blocks  # list of BlockData
         self.gamma = gamma
         self.cfl = cfl
-        self.residuals = []  # 收敛历史
+        self.residuals = []
         self.iteration = 0
 
-        # 初始化每个 block 的残差矩阵
         for blk in self.blocks:
-            shape = blk['fluid'].shape  # shape = (ni, nj, 4)
-            blk['res'] = np.zeros(shape)
+            blk.res = np.zeros_like(blk.fluid)
 
     def compute_primitive_variables(self, blk):
-        """由守恒量计算原始变量：rho, u, v, p
-        """
-        U = blk['fluid']  # shape (ni, nj, 4)
+        U = blk.fluid
         rho = U[:, :, 0]
         u = U[:, :, 1] / rho
         v = U[:, :, 2] / rho
@@ -41,21 +31,14 @@ class RK4Solver:
         return rho, u, v, p
 
     def compute_time_step(self, blk):
-        """基于最大特征速度和体积计算每个点的时间步后取全局最小"""
         rho, u, v, p = self.compute_primitive_variables(blk)
-        a = np.sqrt(self.gamma * p / rho)  # 声速
-        v1 = blk['geo'][:, :, 3:5]
-        v2 = blk['geo'][:, :, 5:7]
-        v3 = blk['geo'][:, :, 7:9]
-        v4 = blk['geo'][:, :, 9:11]
-        len1 = np.linalg.norm(v1, axis=2)  # shape = (ni, nj)
-        len2 = np.linalg.norm(v2, axis=2)
-        len3 = np.linalg.norm(v3, axis=2)
-        len4 = np.linalg.norm(v4, axis=2)
-        n1 = v1 / len1[:, :, None]  # shape = (ni, nj, 2)
-        n2 = v2 / len2[:, :, None]
-        n3 = v3 / len3[:, :, None]
-        n4 = v4 / len4[:, :, None]
+        a = np.sqrt(self.gamma * p / rho)
+
+        s = blk.s  # 法向量 (ni,nj,4,2)
+        len_s = np.linalg.norm(s, axis=3)  # shape = (ni,nj,4)
+
+        n1, n2, n3, n4 = [s[:, :, i, :] / (len_s[:, :, i:i+1] + 1e-12) for i in range(4)]
+        len1, len2, len3, len4 = len_s[:, :, 0], len_s[:, :, 1], len_s[:, :, 2], len_s[:, :, 3]
 
         ni = 0.5 * (n2 - n4)
         nj = 0.5 * (n3 - n1)
@@ -65,123 +48,105 @@ class RK4Solver:
         s1 = (np.abs(u * ni[:, :, 0]) + a) * leni
         s2 = (np.abs(v * nj[:, :, 1]) + a) * lenj
 
-        vol = blk['geo'][:, :, 2]  # 控制体积 |Ω|
-
-        dt_local = self.cfl * vol / (s1 + s2)  # 每个点自己的 dt
-    #    dt = np.min(dt_local)  # 全局最小时间步  注释掉已使用全局时间步长
+        vol = blk.geo[:, :, 2]
+        dt_local = self.cfl * vol / (s1 + s2)
         return dt_local
 
     def compute_residual(self, blk):
-        """计算残差"""
-        res = compute_residual_ausm(blk, m=4, gamma=self.gamma)
-        return res
+        return compute_residual_ausm(blk, m=4, gamma=self.gamma)
 
     def apply_boundary_conditions(self):
-        """统一调用边界条件模块"""
         bd.boundary_farfeild(self.blocks)
         bd.boundary_wall_inviscid(self.blocks)
         bd.boundary_interface(self.blocks)
 
     def iterate(self):
-        """执行一次迭代，采用 4 阶 Runge-Kutta 显式格式"""
-
-        # Step 0: 保存初始状态
         for blk in self.blocks:
-            blk['U0'] = blk['fluid'].copy()
-            blk['dt_local'] = self.compute_time_step(blk)
-            blk['vol'] = blk['geo'][:, :, 2]
+            blk.U0 = blk.fluid.copy()
+            blk.dt_local = self.compute_time_step(blk)
+            blk.vol = blk.geo[:, :, 2]
 
-        # === RK Step 1: k1 ===
+        # === RK1 ===
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            blk['k1'] = self.compute_residual(blk)
+            blk.k1 = self.compute_residual(blk)
 
-        # === RK Step 2: k2 ===
+        # === RK2 ===
         for blk in self.blocks:
-            dt = blk['dt_local'][:, :, None]
-            vol = blk['vol'][:, :, None]
-            blk['fluid'] = blk['U0'] - 0.5 * (dt / vol) * blk['k1']
+            dt, vol = blk.dt_local[:, :, None], blk.vol[:, :, None]
+            blk.fluid = blk.U0 - 0.5 * (dt / vol) * blk.k1
 
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            blk['k2'] = self.compute_residual(blk)
+            blk.k2 = self.compute_residual(blk)
 
-        # === RK Step 3: k3 ===
+        # === RK3 ===
         for blk in self.blocks:
-            dt = blk['dt_local'][:, :, None]
-            vol = blk['vol'][:, :, None]
-            blk['fluid'] = blk['U0'] - 0.5 * (dt / vol) * blk['k2']
-
-        self.apply_boundary_conditions()
-        for blk in self.blocks:
-            blk['k3'] = self.compute_residual(blk)
-
-        # === RK Step 4: k4 ===
-        for blk in self.blocks:
-            dt = blk['dt_local'][:, :, None]
-            vol = blk['vol'][:, :, None]
-            blk['fluid'] = blk['U0'] - (dt / vol) * blk['k3']
+            dt, vol = blk.dt_local[:, :, None], blk.vol[:, :, None]
+            blk.fluid = blk.U0 - 0.5 * (dt / vol) * blk.k2
 
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            blk['k4'] = self.compute_residual(blk)
+            blk.k3 = self.compute_residual(blk)
 
-        # === 合成最终解 ===
+        # === RK4 ===
         for blk in self.blocks:
-            dt = blk['dt_local'][:, :, None]
-            vol = blk['vol'][:, :, None]
-            blk['fluid'] = blk['U0'] - (dt / vol) * (
-                    (1 / 6) * blk['k1'] + (1 / 3) * blk['k2'] + (1 / 3) * blk['k3'] + (1 / 6) * blk['k4']
+            dt, vol = blk.dt_local[:, :, None], blk.vol[:, :, None]
+            blk.fluid = blk.U0 - (dt / vol) * blk.k3
+
+        self.apply_boundary_conditions()
+        for blk in self.blocks:
+            blk.k4 = self.compute_residual(blk)
+
+        # 合成解
+        for blk in self.blocks:
+            dt, vol = blk.dt_local[:, :, None], blk.vol[:, :, None]
+            blk.fluid = blk.U0 - (dt / vol) * (
+                (1/6) * blk.k1 + (1/3) * blk.k2 + (1/3) * blk.k3 + (1/6) * blk.k4
             )
-            blk['res'] = blk['k4']
+            blk.res = blk.k4
 
-        # 清除临时变量
+        # 清除临时量
         for blk in self.blocks:
-            for key in ['U0', 'dt_local', 'vol', 'k1', 'k2', 'k3', 'k4']:
-                blk.pop(key, None)
+            for attr in ['U0', 'dt_local', 'vol', 'k1', 'k2', 'k3', 'k4']:
+                delattr(blk, attr)
 
         self.iteration += 1
 
     def compute_global_residual_norm(self):
-        """计算所有块中残差范数的最大值"""
-        norm_max = 0.0
-        for blk in self.blocks:
-            res = blk['res']
-            norm_blk = np.linalg.norm(res)
-            norm_max = max(norm_max, norm_blk)
-        return norm_max
+        return max(np.linalg.norm(blk.res) for blk in self.blocks)
 
     def run(self, max_iter=10000, tol=1e-3):
-        """主求解循环"""
-
-        # 每次 run 新建 history 文件并写入表头
         with open("history.dat", "w") as f:
-            f.write("Iter\tResidual\tFx\tFy\n")
+            f.write("Iter\tResidual\tFx\tFy\tTime(s)\n")
+
+        # 初始化计时器
+        start_time = time.time()
 
         for _ in range(max_iter):
             self.iterate()
             res_norm = self.compute_global_residual_norm()
             self.residuals.append(res_norm)
 
-            if self.iteration % 20 == 0:
+            if self.iteration % 10 == 0:
                 fx, fy = output_forces(self.blocks)
 
-                # 打印到屏幕
+                # 记录从上一次10次迭代起的时间
+                elapsed = time.time() - start_time
+                start_time = time.time()  # 重置计时器
+
                 print(f"[Iter {self.iteration}] Residual = {res_norm:.3e}")
                 print(f"Forces = {fx:.6f}, {fy:.6f}")
+                print(f"Time for last 10 iters = {elapsed:.2f} s")
 
-                # 追加写入 history 文件
                 with open("history.dat", "a") as f:
-                    f.write(f"{self.iteration}\t{res_norm:.6e}\t{fx:.6f}\t{fy:.6f}\n")
+                    f.write(f"{self.iteration}\t{res_norm:.6e}\t{fx:.6f}\t{fy:.6f}\t{elapsed:.2f}\n")
 
-            if self.iteration % 100 == 0:
-                tecplot_filename = f"solution_iter_{self.iteration}.dat"
-                pkl_filename = f"blocks_result_iter_{self.iteration}.pkl"
-
-                # 保存 Tecplot 文件
+            os.makedirs("results", exist_ok=True)
+            if self.iteration % 10 == 0:
+                tecplot_filename = os.path.join("results", f"solution_iter_{self.iteration}.dat")
+                pkl_filename = os.path.join("results", f"blocks_result_iter_{self.iteration}.pkl")
                 output_tecplot(self.blocks, tecplot_filename)
-
-                # 保存 Python 对象
                 with open(pkl_filename, 'wb') as f:
                     pickle.dump(self.blocks, f)
 

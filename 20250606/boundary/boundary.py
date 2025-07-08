@@ -46,14 +46,15 @@ def boundary_farfeild(blocks):
 def boundary_wall_inviscid(blocks):
     """
     无粘壁面边界条件（type=2）：速度沿法向反射，满足无穿透。
-    使用 geo 中的面向量（S1~S4）计算局部法向方向。
+    使用 BlockData.geo 中的面向量计算局部法向方向。
     """
     for blk in blocks:
-        fluid = blk['fluid']
-        geo = blk['geo']  # (ni-1, nj-1, 7)，S1: [3:5]，S2: [5:7]，S3: [7:9]，S4: [9:11]
+        fluid = blk.fluid
+        geo = blk.geo
+        s = blk.s  # (ni, nj, 4, 2)，四个方向的法向量
         ni, nj, _ = fluid.shape
 
-        for bc in blk['bc']:
+        for bc in blk.bc:
             if bc['type'] != 2:
                 continue
 
@@ -61,15 +62,11 @@ def boundary_wall_inviscid(blocks):
             ghost = bc['ghost_cell']
             length, ghost_layer, _ = ghost.shape
             face_id = identify_face(i1, i2, j1, j2)
-            if face_id == 1 or face_id == 4:
-                imax = np.max([i1, i2])
-            else:
-                jmax = np.max([j1, j2])
 
-            if face_id == 1:  # 下边界 → 使用 geo[:, :, 3:5]
-                for n in range(imax):
+            if face_id == 1:  # 下边界，对应 s[..., 0]
+                for n in range(length):
                     for layer in range(ghost_layer):
-                        vector_n = geo[n, j1 - 1, 3:5]
+                        vector_n = s[n, j1 - 1, 0, :]
                         n_unit = vector_n / np.linalg.norm(vector_n)
                         rho, rhou, rhov, E = fluid[n, layer, :]
                         u = rhou / rho
@@ -82,12 +79,12 @@ def boundary_wall_inviscid(blocks):
                         ghost[n, layer, 2] = rho * v_new
                         ghost[n, layer, 3] = E
 
-            elif face_id == 2:  # 右边界 → geo[i2-1, j, 5:7]
-                for n in range(jmax):
+            elif face_id == 2:  # 右边界，对应 s[..., 1]
+                for n in range(length):
                     for layer in range(ghost_layer):
-                        vector_n = geo[i1 - 1, n, 5:7]
+                        vector_n = s[i2 - 1, n, 1, :]
                         n_unit = vector_n / np.linalg.norm(vector_n)
-                        rho, rhou, rhov, E = fluid[imax - 1 - layer, n, :]
+                        rho, rhou, rhov, E = fluid[ni - 1 - layer, n, :]
                         u = rhou / rho
                         v = rhov / rho
                         un = u * n_unit[0] + v * n_unit[1]
@@ -98,12 +95,12 @@ def boundary_wall_inviscid(blocks):
                         ghost[n, layer, 2] = rho * v_new
                         ghost[n, layer, 3] = E
 
-            elif face_id == 3:  # 上边界 → geo[i, j2-1, 7:9]
-                for n in range(imax):
+            elif face_id == 3:  # 上边界，对应 s[..., 2]
+                for n in range(length):
                     for layer in range(ghost_layer):
-                        vector_n = geo[n, j1 - 1, 7:9]
+                        vector_n = s[n, j2 - 1, 2, :]
                         n_unit = vector_n / np.linalg.norm(vector_n)
-                        rho, rhou, rhov, E = fluid[n, jmax - 1 - layer, :]
+                        rho, rhou, rhov, E = fluid[n, nj - 1 - layer, :]
                         u = rhou / rho
                         v = rhov / rho
                         un = u * n_unit[0] + v * n_unit[1]
@@ -114,10 +111,10 @@ def boundary_wall_inviscid(blocks):
                         ghost[n, layer, 2] = rho * v_new
                         ghost[n, layer, 3] = E
 
-            elif face_id == 4:  # 左边界 → geo[i1, j, 9:11]
-                for n in range(jmax):
+            elif face_id == 4:  # 左边界，对应 s[..., 3]
+                for n in range(length):
                     for layer in range(ghost_layer):
-                        vector_n = geo[i1 - 1, n, 9:11]
+                        vector_n = s[i1 - 1, n, 3, :]
                         n_unit = vector_n / np.linalg.norm(vector_n)
                         rho, rhou, rhov, E = fluid[layer, n, :]
                         u = rhou / rho
@@ -131,54 +128,53 @@ def boundary_wall_inviscid(blocks):
                         ghost[n, layer, 3] = E
 
 
+
 def boundary_interface(blocks):
     """
-    更新内边界（type=-1）的 ghost_cell，通过 transform 映射目标块实网格。
-    参数：
-        blocks: 所有 block 列表
+    更新所有 block 的 type=-1 内边界 ghost_cell，通过 transform 映射目标块实网格。
+    参数:
+        blocks: BlockData 的列表
     """
     for blk in blocks:
-        for bc in blk['bc']:
+        for bc in blk.bc:
             if bc['type'] != -1:
-                continue  # 只处理内边界
+                continue  # 跳过非内边界
 
-            ghost = bc['ghost_cell']  # (length, ghost_layer, N_C)
+            ghost = bc['ghost_cell']  # shape = (length, ghost_layer, N_C)
             length, ghost_layer, _ = ghost.shape
 
-            # 获取目标 block
+            # 获取目标 block 和流场数据
             tgt_blk = blocks[bc['target_block']]
-            tgt_fluid = tgt_blk['fluid']
-            tgt_shape = tgt_fluid.shape[0:2]
+            tgt_fluid = tgt_blk.fluid
+            tgt_shape = tgt_fluid.shape[:2]
 
             # source 和 target 的边界信息
             i1, i2, j1, j2 = bc['source']
             ti1, ti2, tj1, tj2 = bc['target']
             transform = bc['transform']
 
-            if i1 == i2:  # 垂直边界
+            if i1 == i2:  # 垂直边界（沿 j 方向变）
                 for n in range(length):
                     for layer in range(ghost_layer):
 
-                        if i1 == 1:
-                            layer = -layer
-
-                        i_delta, j_delta = apply_transform(layer, n, transform, tgt_shape)
+                        mapped_layer = -layer if i1 == 1 else layer
+                        i_delta, j_delta = apply_transform(mapped_layer, n, transform, tgt_shape)
                         i_map = ti1 + i_delta - 1
                         j_map = tj1 + j_delta - 1
-                        # 复制守恒变量
+
                         ghost[n, layer, :] = tgt_fluid[i_map, j_map, :]
-            elif j1 == j2:  # 水平边界
+
+            elif j1 == j2:  # 水平边界（沿 i 方向变）
                 for n in range(length):
                     for layer in range(ghost_layer):
 
-                        if j1 == 1:
-                            layer = -layer
-
-                        i_delta, j_delta = apply_transform(n, layer, transform, tgt_shape)
+                        mapped_layer = -layer if j1 == 1 else layer
+                        i_delta, j_delta = apply_transform(n, mapped_layer, transform, tgt_shape)
                         i_map = ti1 + i_delta - 1
                         j_map = tj1 + j_delta - 1
-                        # 复制守恒变量
+
                         ghost[n, layer, :] = tgt_fluid[i_map, j_map, :]
+
 
 
 def apply_transform(i, j, transform, shape):

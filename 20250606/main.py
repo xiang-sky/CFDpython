@@ -43,11 +43,10 @@ for i, block in enumerate(blocks):
 
 blocks_cal = tf.trans_list2numpy_2d(blocks, config.N_C)
 
-
 """
 初始化流场和边界条件
 """
-initial.intialization_from_farfield(blocks_cal)
+initial.initialization_from_farfield(blocks_cal)
 
 
 """

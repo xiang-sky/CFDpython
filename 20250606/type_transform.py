@@ -1,5 +1,20 @@
 import numpy as np
 import config
+from numba import njit
+
+class BlockData:
+    def __init__(self, fluid, geo, bc):
+        self.fluid = fluid  # 守恒量数组 shape=(ni,nj,N_C)
+        self.geo = geo      # 网格几何数组 shape=(ni,nj,11)
+        self.bc = bc        # 边界条件（长度为4的列表）
+
+        # 自动提取四个法向量：shape=(ni,nj,4,2)
+        self.s = np.stack([
+            geo[:, :, 3:5],   # S1（下）
+            geo[:, :, 5:7],   # S2（右）
+            geo[:, :, 7:9],   # S3（上）
+            geo[:, :, 9:11],  # S4（左）
+        ], axis=2)
 
 
 def trans_list2numpy_2d(blocks, N_C):
@@ -76,20 +91,16 @@ def trans_list2numpy_2d(blocks, N_C):
         # 去掉为 None 的（如果有边缺失）
         blk['bc'] = [bc for bc in bc_sorted if bc is not None]
 
-        #合并存储
-        block_cal.append({
-            'geo': geo,
-            'fluid': numpy_cal,
-            'bc': blk['bc']
-        })
+        # 合并存储
+        block_cal.append(BlockData(numpy_cal, geo, blk['bc']))
 
     return block_cal
 
 
+@njit
 def trans_primitive2conservative(W, gamma):
     """
-    将原始变量 [rho, u, v (, w), P] 转换为守恒变量 [rho, rho*u, rho*v (, rho*w), rho*E]
-    支持二维和三维。
+    将原始变量 [rho, u, v , P] 转换为守恒变量 [rho, rho*u, rho*v (, rho*w), rho*E]
     参数：
         W : ndarray
             原始变量数组，shape = (m,) or (m, N)，包含：
@@ -101,46 +112,37 @@ def trans_primitive2conservative(W, gamma):
     返回：
         ndarray，守恒变量数组，与 W 形状一致
     """
-    W = np.asarray(W)
-    ndim = W.shape[0] - 2  # 除去 rho 和 P，剩下的是速度分量个数
-
     rho = W[0]
     u = W[1]
     v = W[2]
-    if ndim == 3:
-        w = W[3]
-        P = W[4]
-        kinetic = 0.5 * (u**2 + v**2 + w**2)
-        E = P / ((gamma - 1) * rho) + kinetic
-        cons = np.array([rho, rho*u, rho*v, rho*w, rho*E])
-    else:
-        P = W[3]
-        kinetic = 0.5 * (u**2 + v**2)
-        E = P / ((gamma - 1) * rho) + kinetic
-        cons = np.array([rho, rho*u, rho*v, rho*E])
-    return cons
+    p = W[3]
+    E = p / ((gamma - 1.0) * rho) + 0.5 * (u ** 2 + v ** 2)
+    return np.array([rho, rho * u, rho * v, rho * E])
 
 
-def trans_conservative2primitive(U, gamma, return_pressure=False):
+@njit
+def trans_conservative2primitive(U, gamma):
     """
-    将守恒变量 U 转为原始变量 W: [rho, u, v, ..., P]
-    支持二维或三维
+    将二维欧拉方程的守恒变量 U = [rho, rho*u, rho*v, rho*E]
+    转换为原始变量 W = [rho, u, v, p]。
+    参数:
+        U: ndarray (4,)
+            守恒量向量 [rho, rho*u, rho*v, rho*E]
+        gamma: float
+            比热比
+    返回:
+        rho: 密度
+        u: x 方向速度
+        v: y 方向速度
+        p: 压强
     """
     rho = U[0]
     u = U[1] / rho
     v = U[2] / rho
-
-    if len(U) >= 5:
-        w = U[3] / rho
-        kinetic = 0.5 * (u ** 2 + v ** 2 + w ** 2)
-    else:
-        kinetic = 0.5 * (u ** 2 + v ** 2)
-
-    E = U[-1] / rho
-    p = (gamma - 1) * (E - kinetic) * rho
-    # H = E + p / rho  # 总焓
-
-    return np.array([rho, u, v, p])
+    E = U[3] / rho
+    kinetic = 0.5 * (u ** 2 + v ** 2)       # 动能项
+    p = (gamma - 1.0) * (E - kinetic) * rho  # 状态方程
+    return rho, u, v, p
 
 
 def trans_numpy_conservative2primitive(U, gamma=config.GAMMA, return_pressure=False):
