@@ -143,6 +143,30 @@ def trans_conservative2primitive(U, gamma, return_pressure=False):
     return np.array([rho, u, v, p])
 
 
+def trans_numpy_conservative2primitive(U, gamma=config.GAMMA, return_pressure=False):
+    """
+    将二维无粘守恒量 U 转换为原始量 [rho, u, v, p]
+    输入:
+        U: ndarray, shape = (..., 4), [ρ, ρu, ρv, ρE]
+    返回:
+        W: 原始变量 [..., 4], [ρ, u, v, p]
+    """
+    if U.shape[-1] != 4:
+        raise ValueError("Input U must have 4 variables: [rho, rhou, rhov, rhoE]")
+
+    rho = U[:, :, 0]
+    u = U[:, :, 1] / rho
+    v = U[:, :, 2] / rho
+    E = U[:, :, 3] / rho
+
+    kinetic = 0.5 * (u**2 + v**2)
+    p = (gamma - 1.0) * (E - kinetic) * rho
+
+    W = np.stack([rho, u, v, p], axis=-1)
+
+    return p if return_pressure else W
+
+
 def trans_primitive_dl2primitive_nondl(vi, vj, p, pho, tem):
     """
     将无量纲原始变量还原为有量纲变量。

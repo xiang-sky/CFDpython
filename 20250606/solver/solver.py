@@ -6,10 +6,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 import boundary.boundary as bd
 from post_output.output_tecplot import output_tecplot
+from post_output.output_tecplot import output_forces
 import pickle
 
 
-class RK3Solver:
+class RK4Solver:
     def __init__(self, blocks, gamma=config.GAMMA, cfl=0.1):
         """
         参数:
@@ -82,49 +83,62 @@ class RK3Solver:
         bd.boundary_interface(self.blocks)
 
     def iterate(self):
-        """执行一次迭代，采用 3 阶 Runge-Kutta 显式格式"""
+        """执行一次迭代，采用 4 阶 Runge-Kutta 显式格式"""
 
-        # 1. 保存初始状态 W^(n)
+        # Step 0: 保存初始状态
         for blk in self.blocks:
-            blk['U0'] = blk['fluid'].copy()  # 保存初始状态
-            blk['dt_local'] = self.compute_time_step(blk)  # 计算并缓存局部时间步（数组）
+            blk['U0'] = blk['fluid'].copy()
+            blk['dt_local'] = self.compute_time_step(blk)
+            blk['vol'] = blk['geo'][:, :, 2]
 
-        # === RK Step 1 ===
+        # === RK Step 1: k1 ===
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            U0 = blk['U0']
-            dt_local = blk['dt_local']
-            vol = blk['geo'][:, :, 2]
-            res1 = self.compute_residual(blk)
-            W1 = U0 - (dt_local[:, :, None] / vol[:, :, None]) * res1
-            blk['fluid'] = W1
+            blk['k1'] = self.compute_residual(blk)
 
-        # === RK Step 2 ===
+        # === RK Step 2: k2 ===
+        for blk in self.blocks:
+            dt = blk['dt_local'][:, :, None]
+            vol = blk['vol'][:, :, None]
+            blk['fluid'] = blk['U0'] - 0.5 * (dt / vol) * blk['k1']
+
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            U0 = blk['U0']
-            W1 = blk['fluid']
-            dt_local = blk['dt_local']
-            vol = blk['geo'][:, :, 2]
-            res2 = self.compute_residual(blk)
-            W2 = (3 / 4) * U0 + (1 / 4) * (W1 - (dt_local[:, :, None] / vol[:, :, None]) * res2)
-            blk['fluid'] = W2
+            blk['k2'] = self.compute_residual(blk)
 
-        # === RK Step 3 ===
+        # === RK Step 3: k3 ===
+        for blk in self.blocks:
+            dt = blk['dt_local'][:, :, None]
+            vol = blk['vol'][:, :, None]
+            blk['fluid'] = blk['U0'] - 0.5 * (dt / vol) * blk['k2']
+
         self.apply_boundary_conditions()
         for blk in self.blocks:
-            U0 = blk['U0']
-            W2 = blk['fluid']
-            dt_local = blk['dt_local']
-            vol = blk['geo'][:, :, 2]
-            res3 = self.compute_residual(blk)
-            W3 = (1 / 3) * U0 + (2 / 3) * (W2 - (dt_local[:, :, None] / vol[:, :, None]) * res3)
-            blk['fluid'] = W3
-            blk['res'] = res3  # 最终残差
+            blk['k3'] = self.compute_residual(blk)
 
+        # === RK Step 4: k4 ===
         for blk in self.blocks:
-            blk.pop('U0', None)
-            blk.pop('dt_local', None)
+            dt = blk['dt_local'][:, :, None]
+            vol = blk['vol'][:, :, None]
+            blk['fluid'] = blk['U0'] - (dt / vol) * blk['k3']
+
+        self.apply_boundary_conditions()
+        for blk in self.blocks:
+            blk['k4'] = self.compute_residual(blk)
+
+        # === 合成最终解 ===
+        for blk in self.blocks:
+            dt = blk['dt_local'][:, :, None]
+            vol = blk['vol'][:, :, None]
+            blk['fluid'] = blk['U0'] - (dt / vol) * (
+                    (1 / 6) * blk['k1'] + (1 / 3) * blk['k2'] + (1 / 3) * blk['k3'] + (1 / 6) * blk['k4']
+            )
+            blk['res'] = blk['k4']
+
+        # 清除临时变量
+        for blk in self.blocks:
+            for key in ['U0', 'dt_local', 'vol', 'k1', 'k2', 'k3', 'k4']:
+                blk.pop(key, None)
 
         self.iteration += 1
 
@@ -139,12 +153,26 @@ class RK3Solver:
 
     def run(self, max_iter=10000, tol=1e-3):
         """主求解循环"""
+
+        # 每次 run 新建 history 文件并写入表头
+        with open("history.dat", "w") as f:
+            f.write("Iter\tResidual\tFx\tFy\n")
+
         for _ in range(max_iter):
             self.iterate()
             res_norm = self.compute_global_residual_norm()
             self.residuals.append(res_norm)
+
             if self.iteration % 20 == 0:
+                fx, fy = output_forces(self.blocks)
+
+                # 打印到屏幕
                 print(f"[Iter {self.iteration}] Residual = {res_norm:.3e}")
+                print(f"Forces = {fx:.6f}, {fy:.6f}")
+
+                # 追加写入 history 文件
+                with open("history.dat", "a") as f:
+                    f.write(f"{self.iteration}\t{res_norm:.6e}\t{fx:.6f}\t{fy:.6f}\n")
 
             if self.iteration % 100 == 0:
                 tecplot_filename = f"solution_iter_{self.iteration}.dat"

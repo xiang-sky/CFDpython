@@ -5,7 +5,7 @@ import boundary.boundary as bd
 import type_transform as tf
 import config
 import Initialization as initial
-from solver.solver import RK3Solver
+from solver.solver import RK4Solver
 from post_output.output_tecplot import output_tecplot
 import pickle
 
@@ -53,7 +53,7 @@ initial.intialization_from_farfield(blocks_cal)
 """
 迭代计算
 """
-slover = RK3Solver(blocks_cal, config.GAMMA, 0.1)
+slover = RK4Solver(blocks_cal, config.GAMMA, 0.5)
 slover.run(20000, 1e-3)
 blocks_result = slover.blocks
 
