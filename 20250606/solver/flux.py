@@ -32,8 +32,9 @@ def compute_ausm_flux_2d_local(w_l, w_r, s, gamma):
     rho_l, u_l, v_l, p_l = trans_conservative2primitive(w_l, gamma)
     rho_r, u_r, v_r, p_r = trans_conservative2primitive(w_r, gamma)
 
-    # 面向量单位化（如需）暂略，默认单位化
-    n0, n1 = s[0], s[1]
+    norm_s = np.sqrt(s[0] ** 2 + s[1] ** 2)
+    n0 = s[0] / norm_s
+    n1 = s[1] / norm_s
 
     # 法向速度
     v_n_l = u_l * n0 + v_l * n1
@@ -93,7 +94,7 @@ def compute_ausm_flux_2d_local(w_l, w_r, s, gamma):
                     - 0.5 * np.abs(ma_face) * (f_r[i] - f_l[i]) \
                     + f_p[i]
 
-    return f_face
+    return f_face * norm_s
 
 
 @njit

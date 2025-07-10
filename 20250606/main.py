@@ -14,7 +14,7 @@ import pickle
 读取网格和边界条件，预处理网格
 """
 mesh_read = StructuredMeshInitialization2D()
-mesh_read.load_file("airfoil0012extend.grd", "airfoil0012extend.inp", 0.001)
+mesh_read.load_file("RAE2822.grd", "RAE2822.inp", 1)
 mesh_read.merge_blocks_2D()
 mesh_read.interface_transform_cal()
 mesh_read.print_block_info()
@@ -53,9 +53,9 @@ initial.initialization_from_farfield(blocks_cal)
 迭代计算
 """
 slover = RK4Solver(blocks_cal, config.GAMMA, 0.5)
-slover.run(20000, 1e-3)
+slover.run(25000, 1e-3)
 blocks_result = slover.blocks
-
+ 
 
 """
 输出
@@ -63,3 +63,5 @@ blocks_result = slover.blocks
 with open('blocks_result.pkl', 'wb') as f:
     pickle.dump(blocks_result, f)
 output_tecplot(blocks_result)
+
+

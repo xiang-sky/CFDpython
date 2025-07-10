@@ -6,6 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 import boundary.boundary as bd
 from post_output.output_tecplot import output_tecplot
+from post_output.output_tecplot import output_tecplot_series
 from post_output.output_tecplot import output_forces
 import pickle
 import time
@@ -140,13 +141,14 @@ class RK4Solver:
                 print(f"Time for last 10 iters = {elapsed:.2f} s")
 
                 with open("history.dat", "a") as f:
-                    f.write(f"{self.iteration}\t{res_norm:.6e}\t{fx:.6f}\t{fy:.6f}\t{elapsed:.2f}\n")
+                    f.write(f"{self.iteration}\t\t\t{res_norm:.6e}\t\t\t\t{fx:.6f}\t\t\t{fy:.6f}\t\t\t{elapsed:.2f}\n")
 
             os.makedirs("results", exist_ok=True)
             if self.iteration % 10 == 0:
                 tecplot_filename = os.path.join("results", f"solution_iter_{self.iteration}.dat")
                 pkl_filename = os.path.join("results", f"blocks_result_iter_{self.iteration}.pkl")
-                output_tecplot(self.blocks, tecplot_filename)
+                #output_tecplot(self.blocks, tecplot_filename)
+                output_tecplot_series(self.blocks, self.iteration, tecplot_filename)
                 with open(pkl_filename, 'wb') as f:
                     pickle.dump(self.blocks, f)
 

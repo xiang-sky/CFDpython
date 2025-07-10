@@ -1,6 +1,6 @@
 import numpy as np
 from type_transform import identify_face
-
+import config
 
 def crate_ghost_cells(blocks, ghost_layer, N_C):
     """
@@ -33,14 +33,40 @@ def crate_ghost_cells(blocks, ghost_layer, N_C):
             bc['ghost_cell'] = np.zeros(shape, dtype=float)
 
 
-def boundary_farfeild(blocks):
+def boundary_farfeild(blocks, alpha=0):
     """
-    更新远场边界条件
+    使用 config.U_FAR 更新远场边界条件 ghost cell：
+    ghost = α * 内部实网格 + (1 - α) * config.U_FAR
+
     参数：
-        blocks (list of dict): 每个 block 是一个包含网格和边界条件的字典。
+        blocks: 所有结构块列表
+        alpha: 权重系数，默认 0.9（越大表示越靠近内部真实值）
     """
-    # 用远场条件初始化远场虚网格后后续迭代中不需要改变
-    pass
+    for blk in blocks:
+        fluid = blk.fluid
+        ni, nj, _ = fluid.shape
+
+        for bc in blk.bc:
+            if bc['type'] != 4:
+                continue  # 非远场边界跳过
+
+            i1, i2, j1, j2 = bc['source']
+            ghost = bc['ghost_cell']
+            length, ghost_layer, _ = ghost.shape
+            face_id = identify_face(i1, i2, j1, j2)
+
+            for n in range(length):
+                for layer in range(ghost_layer):
+                    if face_id == 1:  # 下边界
+                        U_inside = fluid[n, layer, :]
+                    elif face_id == 2:  # 右边界
+                        U_inside = fluid[ni - 1 - layer, n, :]
+                    elif face_id == 3:  # 上边界
+                        U_inside = fluid[n, nj - 1 - layer, :]
+                    elif face_id == 4:  # 左边界
+                        U_inside = fluid[layer, n, :]
+
+                    ghost[n, layer, :] = alpha * U_inside + (1 - alpha) * config.U_FAR
 
 
 def boundary_wall_inviscid(blocks):
@@ -153,44 +179,53 @@ def boundary_interface(blocks):
             ti1, ti2, tj1, tj2 = bc['target']
             transform = bc['transform']
 
+            if i1 > i2:
+                i1, i2 = i2, i1
+                ti1, ti2 = ti2, ti1
+            if j1 > j2:
+                j1, j2 = j2, j1
+                tj1, tj2 = tj2, tj1
+
             if i1 == i2:  # 垂直边界（沿 j 方向变）
                 for n in range(length):
                     for layer in range(ghost_layer):
 
-                        mapped_layer = -layer if i1 == 1 else layer
-                        i_delta, j_delta = apply_transform(mapped_layer, n, transform, tgt_shape)
-                        i_map = ti1 + i_delta - 1
-                        j_map = tj1 + j_delta - 1
-
-                        ghost[n, layer, :] = tgt_fluid[i_map, j_map, :]
+                        dr_i = - 1 if i1 == 1 else 1
+                        transform_matrix = transform_matrix_cal(transform)
+                        i_j_p = np.array([[i1 + dr_i * layer], [j1 + n]])
+                        i_j_b1 = np.array([[i1], [j1]])
+                        i_j_b2 = np.array([[ti1], [tj1]])
+                        i_j_map = transform_matrix @ (i_j_p - i_j_b1) + i_j_b2
+                        ghost[n, layer, :] = tgt_fluid[int(i_j_map[0]) - 1, int(i_j_map[1]) - 1, :]
 
             elif j1 == j2:  # 水平边界（沿 i 方向变）
                 for n in range(length):
                     for layer in range(ghost_layer):
 
-                        mapped_layer = -layer if j1 == 1 else layer
-                        i_delta, j_delta = apply_transform(n, mapped_layer, transform, tgt_shape)
-                        i_map = ti1 + i_delta - 1
-                        j_map = tj1 + j_delta - 1
+                        dr_j = -1 if j1 == 1 else 1
+                        transform_matrix = transform_matrix_cal(transform)
+                        i_j_p = np.array([[i1 + n], [j1 + dr_j * layer]])
+                        i_j_b1 = np.array([[i1], [j1]])
+                        i_j_b2 = np.array([[ti1], [tj1]])
+                        i_j_map = transform_matrix @ (i_j_p - i_j_b1) + i_j_b2
+                        ghost[n, layer, :] = tgt_fluid[int(i_j_map[0]) - 1, int(i_j_map[1]) - 1, :]
 
-                        ghost[n, layer, :] = tgt_fluid[i_map, j_map, :]
 
-
-
-def apply_transform(i, j, transform, shape):
+def transform_matrix_cal(transform):
     """
     将(i,j)坐标按照 transform 映射，返回新的(i,j)
     transform: (a, b)
     shape: 目标块的二维 shape，用于翻转索引
     """
     a, b = transform
-    ni, nj = shape
-    i_new = i if abs(a) == 1 else j
-    j_new = i if abs(b) == 1 else j
+    dela1 = 1 if abs(a) == 1 else 0
+    dela2 = 1 if abs(a) == 2 else 0
+    delb1 = 1 if abs(b) == 1 else 0
+    delb2 = 1 if abs(b) == 2 else 0
 
-    if a < 0:
-        i_new = ni - 1 - i_new
-    if b < 0:
-        j_new = nj - 1 - j_new
+    t = np.array([
+        [np.sign(a) * dela1, np.sign(b) * delb1],
+        [np.sign(a) * dela2, np.sign(b) * delb2]
+    ])
 
-    return i_new, j_new
+    return t

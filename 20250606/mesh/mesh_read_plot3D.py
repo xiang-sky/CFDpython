@@ -289,6 +289,9 @@ class StructuredMeshInitialization2D:
                             a = 2 * np.sign(ds_i * dt_j)
                             a = int(a)
 
+                # 20250709 确认对应关系后得转换为正值
+                bc["source"] = [abs(x) for x in bc["source"]]  # 20250709 确认对应关系后得转换为正值
+                bc["target"] = [abs(x) for x in bc["target"]]
                 bc["transform"] = (a, b)
 
     def bind_bc_to_blocks(self):
