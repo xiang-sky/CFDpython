@@ -11,13 +11,15 @@ from post_output.output_tecplot import output_forces
 import pickle
 import time
 
-class RK4Solver:
+class CFDSolver:
     def __init__(self, blocks, gamma=config.GAMMA, cfl=0.1):
         self.blocks = blocks  # list of BlockData
         self.gamma = gamma
         self.cfl = cfl
         self.residuals = []
         self.iteration = 0
+        self.temporal_discrete = 1
+        self.if_localdt = 1
 
         for blk in self.blocks:
             blk.res = np.zeros_like(blk.fluid)
@@ -50,7 +52,15 @@ class RK4Solver:
         s2 = (np.abs(v * nj[:, :, 1]) + a) * lenj
 
         vol = blk.geo[:, :, 2]
-        dt_local = self.cfl * vol / (s1 + s2)
+
+        if self.if_localdt == 1:
+            # 当地时间步长
+            dt_local = self.cfl * vol / (s1 + s2)
+        else:
+            # 全局时间步长
+            dt_min = np.min(self.cfl * vol / (s1 + s2))
+            dt_local = np.full_like(vol, dt_min)
+
         return dt_local
 
     def compute_residual(self, blk):
@@ -61,7 +71,7 @@ class RK4Solver:
         bd.boundary_wall_inviscid(self.blocks)
         bd.boundary_interface(self.blocks)
 
-    def iterate(self):
+    def rk4_iterate(self):
         for blk in self.blocks:
             blk.U0 = blk.fluid.copy()
             blk.dt_local = self.compute_time_step(blk)
@@ -114,6 +124,12 @@ class RK4Solver:
 
         self.iteration += 1
 
+    def lu_sgs_iterate(self):
+        gamma = self.gamma
+        pass
+
+        self.iteration += 1
+
     def compute_global_residual_norm(self):
         return max(np.linalg.norm(blk.res) for blk in self.blocks)
 
@@ -125,7 +141,12 @@ class RK4Solver:
         start_time = time.time()
 
         for _ in range(max_iter):
-            self.iterate()
+
+            if self.temporal_discrete == 1:
+                self.rk4_iterate()
+            elif self.temporal_discrete == 2:
+                self.lu_sgs_iterate()
+
             res_norm = self.compute_global_residual_norm()
             self.residuals.append(res_norm)
 

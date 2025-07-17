@@ -5,7 +5,7 @@ import boundary.boundary as bd
 import type_transform as tf
 import config
 import Initialization as initial
-from solver.solver import RK4Solver
+from solver.solver import CFDSolver
 from post_output.output_tecplot import output_tecplot
 import pickle
 
@@ -52,7 +52,9 @@ initial.initialization_from_farfield(blocks_cal)
 """
 迭代计算
 """
-slover = RK4Solver(blocks_cal, config.GAMMA, 0.5)
+slover = CFDSolver(blocks_cal, config.GAMMA, 0.5)
+slover.temporal_discrete = 1
+slover.if_localdt = 0
 slover.run(25000, 1e-3)
 blocks_result = slover.blocks
  
