@@ -45,13 +45,13 @@ def compute_residual_ausm(block, m=config.N_C, gamma=config.GAMMA):
         elif face_id == 3:  # 左边
             u_rescal[0:ghost_layer, ghost_layer:ghost_layer + length, :] = ghost_t[::-1, :, :]
 
-    res = compute_flux_core(u_rescal, geo, s, ni, nj, ghost_layer, m, gamma)
+    res = compute_flux_ausm_core(u_rescal, geo, s, ni, nj, ghost_layer, m, gamma)
 
     return res
 
 
 @njit
-def compute_flux_core(u_rescal, geo, s, ni, nj, ghost_layer, m, gamma):
+def compute_flux_ausm_core(u_rescal, geo, s, ni, nj, ghost_layer, m, gamma):
     flux_tem = np.zeros((ni, nj, m, 4))
 
     for i in range(ghost_layer, ni + ghost_layer):

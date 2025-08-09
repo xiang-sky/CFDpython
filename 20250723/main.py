@@ -14,7 +14,7 @@ import pickle
 读取网格和边界条件，预处理网格
 """
 mesh_read = StructuredMeshInitialization2D()
-mesh_read.load_file("RAE2822.grd", "RAE2822.inp", 1)
+mesh_read.load_file("airfoil0012extend.grd", "airfoil0012extend.inp", 0.001)
 mesh_read.merge_blocks_2D()
 mesh_read.interface_transform_cal()
 mesh_read.print_block_info()
@@ -52,16 +52,26 @@ initial.initialization_from_farfield(blocks_cal)
 """
 迭代计算
 """
-slover = CFDSolver(blocks_cal, config.GAMMA, 0.5)
-slover.temporal_discrete = 1
+slover = CFDSolver(blocks_cal, config.GAMMA, 2)
+
+# 时间离散格式
+slover.temporal_discrete = 2
+
+# 是否当地时间步长
 slover.if_localdt = 0
-slover.run(25000, 1e-3)
+
+# 是否生成一个沿时间序列的大矩阵
+slover.if_output_npy = 0
+
+slover.run(60000, 1e-3)
 blocks_result = slover.blocks
- 
+blocks_result_seriesnpy = slover.results_series_npy
 
 """
 输出
 """
+np.save('CFDoutput.npy', blocks_result_seriesnpy)
+
 with open('blocks_result.pkl', 'wb') as f:
     pickle.dump(blocks_result, f)
 output_tecplot(blocks_result)

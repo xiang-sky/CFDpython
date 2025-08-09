@@ -168,3 +168,23 @@ def output_tecplot_series(blocks, iteration, filename=None):
                             res[i, j, 0], res[i, j, 1], res[i, j, 2], res[i, j, 3]]
                     f.write(" ".join(f"{v:.6e}" for v in vals) + "\n")
 
+
+def merge_blocks_fluid(blocks):
+    fluid_list = []
+
+    for blk in blocks:
+        w = blk.fluid
+        fluid_list.append(w)
+
+    fluid_all = np.concatenate(fluid_list, axis=0)  # shape: (ni_total, nj, 4)
+    return fluid_all
+
+def merge_blocks_res(blocks):
+    res_list = []
+
+    for blk in blocks:
+        w = blk.res
+        res_list.append(w)
+
+    fluid_all = np.concatenate(res_list, axis=0)  # shape: (ni_total, nj, 4)
+    return fluid_all
