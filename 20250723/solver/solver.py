@@ -10,9 +10,13 @@ from post_output.output_tecplot import output_tecplot_series
 from post_output.output_tecplot import output_forces
 from post_output.output_tecplot import merge_blocks_fluid
 from post_output.output_tecplot import merge_blocks_res
+from solver.temporal import forward_sweep_numba
+from solver.temporal import backward_sweep_numba
+from solver.temporal import compute_lusgs_d_numba
 import pickle
 import time
 from type_transform import trans_conservative2primitive
+
 
 
 class CFDSolver:
@@ -140,138 +144,36 @@ class CFDSolver:
         self.iteration += 1
 
     def lu_sgs_iterate(self):
-
         for blk in self.blocks:
             blk.U0 = blk.fluid.copy()
             blk.dt_local, blk.lambdax, blk.lambday = self.compute_time_step(blk, return_lambda=True)
             blk.vol = blk.geo[:, :, 2]
-
-            # 计算对角矩阵D
-            blk.D = self.compute_lusgs_d(blk, 1.5)
+            blk.D = compute_lusgs_d_numba(blk.dt_local, blk.vol, blk.lambdax, blk.lambday, 1.5)
 
         self.apply_boundary_conditions()
+
         for blk in self.blocks:
             blk.res = self.compute_residual(blk)
 
-        # 前扫掠
         for blk in self.blocks:
             blk.deltaU = np.zeros_like(blk.U0)
 
         for blk in self.blocks:
-            self.forward_sweep(blk, 1.5)
+            forward_sweep_numba(blk.fluid, blk.res, blk.lambdax, blk.lambday,
+                                blk.D, blk.deltaU, blk.s, self.gamma, 1.5)
 
-        # 后扫掠
         for blk in self.blocks:
-            self.backward_sweep(blk, 1.5)
+            backward_sweep_numba(blk.fluid, blk.deltaU, blk.lambdax, blk.lambday,
+                                 blk.D, blk.s, self.gamma, 1.5)
 
-        # === 更新守恒量 ===
         for blk in self.blocks:
             blk.fluid = blk.U0 + blk.deltaU
 
-        # 清除临时变量
         for blk in self.blocks:
             for attr in ['U0', 'dt_local', 'vol', 'D', 'deltaU', 'lambdax', 'lambday']:
                 delattr(blk, attr)
 
         self.iteration += 1
-
-    def forward_sweep(self, blk, w):
-        nx, ny, nv = blk.U0.shape
-        s = blk.s  # shape = (ni,nj,4,2) 四个边界面法向量
-        for diag in range(nx + ny - 1):
-            for i in range(nx):
-                j = diag - i
-                if 0 <= j < ny:
-
-                    len_s = np.linalg.norm(s[i, j, :, :], axis=1)  # 每个边长
-                    # 四个边单位法向量
-                    n = s[i, j] / (len_s[:, None] + 1e-12)  # shape = (4, D)
-                    n1, n2, n3, n4 = n
-
-                    u = blk.fluid[i, j, :]
-                    res = -blk.res[i, j, :]
-                    lambdax = blk.lambdax[i, j]
-                    lambday = blk.lambday[i, j]
-
-                    # 计算L
-                    acx = self.conjacobian(u, n4, self.gamma)
-                    acy = self.conjacobian(u, n1, self.gamma)
-                    lx = 0.5 * ((acx * len_s[3]) - (w * lambdax * np.eye(4)))
-                    ly = 0.5 * ((acy * len_s[0]) - (w * lambday * np.eye(4)))
-
-                    if i > 0:
-                        res -= lx @ blk.deltaU[i - 1, j, :]
-                    if j > 0:
-                        res -= ly @ blk.deltaU[i, j - 1, :]
-                    
-                    blk.deltaU[i, j] = np.linalg.solve(blk.D[i, j], res)
-
-    def backward_sweep(self, blk, w):
-        nx, ny, nv = blk.U0.shape
-        s = blk.s  # shape = (ni,nj,4,2) 四个边界面法向量
-        for diag in reversed(range(nx + ny - 1)):
-            for i in range(nx):
-                j = diag - i
-                if 0 <= j < ny:
-
-                    len_s = np.linalg.norm(s[i, j, :, :], axis=1)  # 每个边长
-                    # 四个边单位法向量
-                    n = s[i, j] / (len_s[:, None] + 1e-12)  # shape = (4, D)
-                    n1, n2, n3, n4 = n
-
-                    u = blk.fluid[i, j, :]
-                    res = blk.D[i, j] @ blk.deltaU[i, j].copy()
-
-                    lambdax = blk.lambdax[i, j]
-                    lambday = blk.lambday[i, j]
-
-                    # 右侧界面法向量
-                    acx = self.conjacobian(u, n2, self.gamma)
-                    ux = 0.5 * (acx * len_s[1] - w * lambdax * np.eye(4))
-
-                    # 上侧界面法向量
-                    acy = self.conjacobian(u, n3, self.gamma)
-                    uy = 0.5 * (acy * len_s[2] - w * lambday * np.eye(4))
-
-                    if i < nx - 1:
-                        res -= ux @ blk.deltaU[i + 1, j, :]
-                    if j < ny - 1:
-                        res -= uy @ blk.deltaU[i, j + 1, :]
-
-                    blk.deltaU[i, j] = np.linalg.solve(blk.D[i, j], res)
-
-    def compute_lusgs_d(self, blk, w):
-        # 使用 local dt 和简单谱半径近似 Jacobian
-        nx, ny, _ = blk.fluid.shape
-        D = np.zeros((nx, ny, 4, 4))
-        for i in range(nx):
-            for j in range(ny):
-                dt = blk.dt_local[i, j]
-                vol = blk.vol[i, j]
-                lambdax = blk.lambdax[i, j]
-                lambday = blk.lambday[i, j]
-                D[i, j] = np.eye(4) * ((vol / dt) + w * (lambdax + lambday))
-        return D
-
-    def conjacobian(self, U, n, gamma):
-        '''
-        求解对流通量雅可比矩阵
-        '''
-        rho, u, v, p = trans_conservative2primitive(U, gamma)
-        vn = u * n[0] + v * n[1]
-        rha = 0.5 * (gamma - 1) * (u**2 + v**2)
-        E = (p / ((gamma - 1) * rho)) + 0.5 * (u**2 + v**2)
-        a1 = gamma * E - rha
-        a2 = gamma - 1
-        a3 = gamma -2
-
-        ac = np.array([
-            [0,                     n[0],                       n[1],                       0],
-            [n[0] * rha - u * vn,   vn - a3 * n[0] * u,         n[1] * u - a2 * n[0] * v,   a2 * n[0]],
-            [n[1] * rha - v * vn,   n[0] * v - a2 * n[1] * u,   vn - a3 * n[1] * v,         a2 * n[1]],
-            [vn * (rha - a1),       n[0] * a1 - a2 * u * vn,    n[1] * a1 - a2 * v * vn,    gamma * vn]
-        ])
-        return ac
 
     def compute_global_residual_norm(self):
         res_norms = [np.linalg.norm(blk.res, axis=2) for blk in self.blocks]
@@ -301,7 +203,7 @@ class CFDSolver:
                 merge_result = np.concatenate([merge_result_w, merge_result_res], axis=2)  # shape: (H, W, 8)
                 self.results_series_npy.append(merge_result)
 
-            if self.iteration % 10 == 0:
+            if self.iteration % 100 == 0:
                 if self.if_output_npy == 1 and len(self.results_series_npy) > 0:
                     npy_filename = os.path.join("results", f"series_{self.iteration - 9}_{self.iteration}.npy")
                     np.save(npy_filename, np.stack(self.results_series_npy, axis=0))
@@ -315,7 +217,7 @@ class CFDSolver:
 
                 print(f"[Iter {self.iteration}] Residual = {res_norm:.3e}")
                 print(f"Forces = {fx:.6f}, {fy:.6f}")
-                print(f"Time for last 10 iters = {elapsed:.2f} s")
+                print(f"Time for last 100 iters = {elapsed:.2f} s")
 
                 with open("history.dat", "a") as f:
                     f.write(f"{self.iteration}\t\t\t{res_norm:.6e}\t\t\t\t{fx:.6f}\t\t\t{fy:.6f}\t\t\t{elapsed:.2f}\n")
