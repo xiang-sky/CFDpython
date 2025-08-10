@@ -14,7 +14,7 @@ import pickle
 读取网格和边界条件，预处理网格
 """
 mesh_read = StructuredMeshInitialization2D()
-mesh_read.load_file("RAE2822.grd", "RAE2822.inp", 1)
+mesh_read.load_file("wedge.grd", "wedge.inp", 1)
 mesh_read.merge_blocks_2D()
 mesh_read.interface_transform_cal()
 mesh_read.print_block_info()
@@ -48,22 +48,24 @@ blocks_cal = tf.trans_list2numpy_2d(blocks, config.N_C)
 """
 initial.initialization_from_farfield(blocks_cal)
 
+#with open('results/blocks_result_iter_2100.pkl', 'rb') as f:  # 注意是以二进制读取模式 'rb'
+#    blocks_cal = pickle.load(f)
 
 """
 迭代计算
 """
-slover = CFDSolver(blocks_cal, config.GAMMA, 3)
+slover = CFDSolver(blocks_cal, config.GAMMA, 4)
 
 # 时间离散格式
 slover.temporal_discrete = 2
 
 # 是否当地时间步长
-slover.if_localdt = 1
+slover.if_localdt = 0
 
 # 是否生成一个沿时间序列的大矩阵
 slover.if_output_npy = 0
 
-slover.run(60000, 1e-3)
+slover.run(6000, 1e-9)
 blocks_result = slover.blocks
 blocks_result_seriesnpy = slover.results_series_npy
 

@@ -78,7 +78,7 @@ class CFDSolver:
             dt_local = np.full_like(vol, dt_min)
 
         if return_lambda:
-            return dt_local, lambda_x, lambda_y
+            return dt_local, s1, s2
         else:
             return dt_local
 
@@ -89,7 +89,7 @@ class CFDSolver:
         bd.boundary_farfeild(self.blocks)
         bd.boundary_wall_inviscid(self.blocks)
         bd.boundary_interface(self.blocks)
-
+        bd.boundary_supersonic_output(self.blocks)
     def rk4_iterate(self):
         for blk in self.blocks:
             blk.U0 = blk.fluid.copy()

@@ -33,40 +33,19 @@ def crate_ghost_cells(blocks, ghost_layer, N_C):
             bc['ghost_cell'] = np.zeros(shape, dtype=float)
 
 
-def boundary_farfeild(blocks, alpha=0):
+def boundary_farfeild(blocks):
     """
     使用 config.U_FAR 更新远场边界条件 ghost cell：
-    ghost = α * 内部实网格 + (1 - α) * config.U_FAR
 
     参数：
         blocks: 所有结构块列表
-        alpha: 权重系数，默认 0.9（越大表示越靠近内部真实值）
     """
     for blk in blocks:
-        fluid = blk.fluid
-        ni, nj, _ = fluid.shape
-
         for bc in blk.bc:
             if bc['type'] != 4:
                 continue  # 非远场边界跳过
 
-            i1, i2, j1, j2 = bc['source']
-            ghost = bc['ghost_cell']
-            length, ghost_layer, _ = ghost.shape
-            face_id = identify_face(i1, i2, j1, j2)
-
-            for n in range(length):
-                for layer in range(ghost_layer):
-                    if face_id == 1:  # 下边界
-                        U_inside = fluid[n, layer, :]
-                    elif face_id == 2:  # 右边界
-                        U_inside = fluid[ni - 1 - layer, n, :]
-                    elif face_id == 3:  # 上边界
-                        U_inside = fluid[n, nj - 1 - layer, :]
-                    elif face_id == 4:  # 左边界
-                        U_inside = fluid[layer, n, :]
-
-                    ghost[n, layer, :] = alpha * U_inside + (1 - alpha) * config.U_FAR
+            bc['ghost_cell'][:, :, :] = config.U_FAR
 
 
 def boundary_wall_inviscid(blocks):
@@ -229,3 +208,35 @@ def transform_matrix_cal(transform):
     ])
 
     return t
+
+
+def boundary_supersonic_output(blocks):
+    """
+    使用 config.U_FAR 更新超声速出流边界条件 ghost cell：
+    ghost = 内部实网格
+    参数：
+        blocks: 所有结构块列表
+    """
+    for blk in blocks:
+        fluid = blk.fluid
+        ni, nj, _ = fluid.shape
+
+        for bc in blk.bc:
+            if bc['type'] != 6:
+                continue  # 非远场边界跳过
+
+            i1, i2, j1, j2 = bc['source']
+            ghost = bc['ghost_cell']
+            length, ghost_layer, _ = ghost.shape
+            face_id = identify_face(i1, i2, j1, j2)
+
+            for n in range(length):
+                for layer in range(ghost_layer):
+                    if face_id == 1:  # 下边界
+                        ghost[n, layer, :] = fluid[n, layer, :]
+                    elif face_id == 2:  # 右边界
+                        ghost[n, layer, :] = fluid[ni - 1 - layer, n, :]
+                    elif face_id == 3:  # 上边界
+                        ghost[n, layer, :] = fluid[n, nj - 1 - layer, :]
+                    elif face_id == 4:  # 左边界
+                        ghost[n, layer, :] = fluid[layer, n, :]
